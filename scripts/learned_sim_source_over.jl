@@ -14,7 +14,7 @@ using ProgressMeter
 
 import Flux: update!
 
-sim_name = "debug"
+sim_name = "over-subset-7src"
 _dict = @strdict 
 plot_path = "/localdata/mlouboutin3/learned-sim-source/plots/$(sim_name)"
 save_path = "/localdata/mlouboutin3/learned-sim-source/data/$(sim_name)"
@@ -46,6 +46,8 @@ o = (0., 0.)
 
 # Setup info and model structure
 nsrc = 21
+sub_fact = 3
+n_sim_src = div(nsrc, sub_fact)
 model0 = Model(n, d, o, m0)
 
 # Set up receiver geometry
@@ -106,22 +108,23 @@ test_loss_h = Vector{Float32}()
 
 # Split 80/20
 inds = randperm(2000)
-indices_train = inds[1:n_samples_train]
+indices_train = repeat(inds[1:n_samples_train], sub_fact)
 indices_test = inds[n_samples_train+1:end]
 ntest = length(indices_test)
+ntrain = length(indices_train)
 
 iname = @strdict indices_train indices_test
-# safesave(joinpath(save_path, savename(iname; digits=6)*"train-split-indices.jld2"), @strdict indices_train indices_test);
+safesave(joinpath(save_path, savename(iname; digits=6)*"train-split-indices.jld2"), @strdict indices_train indices_test);
 
 p = isinteractive() ? Progress(n_epochs*n_samples_train, color=:red) : nothing
 
 for e in 1:n_epochs
-    idx_train = indices_train[randperm(length(indices_train))]
+    idx_train = indices_train[randperm(ntrain)]
     for (k, idx) in enumerate(idx_train)
         # Training
         dmj = Slices["dm"][idx]
         m0j = Slices["m0"][idx]
-        d_obs = get_shots(idx, J, shot_path, dmj, m0j)
+        d_obs, Ji = get_shots(idx, J, shot_path, dmj, m0j; nsim=n_sim_src)
         Base.flush(stdout)
         t1 = @elapsed begin
             # Compute gradient and update parameters
@@ -134,17 +137,17 @@ for e in 1:n_epochs
             push!(train_loss_h, loss_log)
             GC.gc(true)
         end
-        mod(k-1, plot_every) == 0 && plot_prediction(net, J, m0j, dmj, d_obs, k, e, plot_path;lr=1, n_epochs=1, name="train")
+        mod(k-1, plot_every) == 0 && plot_prediction(net, Ji, m0j, dmj, d_obs, k, e, plot_path;lr=1, n_epochs=1, name="train")
         # Testing
         if mod(k-1, test_every) == 0
             idxt = indices_test[rand(1:ntest)]
             dmjt = Slices["dm"][idxt]
             m0t = Slices["m0"][idxt]
-            d_obst = get_shots(idxt, J, shot_path, dmjt, m0t)
+            d_obst, Jit = get_shots(idxt, J, shot_path, dmjt, m0t)
             loss_log = net(dmjt, d_obst, m0t)[1]
             push!(test_loss_h, loss_log)
 
-            mod(k-1, plot_every) == 0 && plot_prediction(net, J, m0t, dmjt, d_obst, k, e, plot_path;lr=1, n_epochs=1, name="test")
+            mod(k-1, plot_every) == 0 && plot_prediction(net, Jit, m0t, dmjt, d_obst, k, e, plot_path;lr=1, n_epochs=1, name="test")
         end
 
         mod(k-1, plot_every) == 0 && plot_losses(train_loss_h, test_loss_h, k, e, plot_path; lr=1, n_epochs=1)
@@ -156,7 +159,7 @@ for e in 1:n_epochs
         if isinteractive()
             ProgressMeter.next!(p; showvalues=[(:loss_train, train_loss_h[end]), (:epoch, e), (:iter, k), (:t, t1)], valuecolor=:blue)
         else
-            @printf("epoch %d/%d, iter %d/%d, loss=%2.4e, t=%1.3f sec \n", e, n_epochs, k, n_samples_train, train_loss_h[end], t1)
+            @printf("epoch %d/%d, iter %d/%d, loss=%2.4e, t=%1.3f sec \n", e, n_epochs, k, ntrain, train_loss_h[end], t1)
         end
     end
 end

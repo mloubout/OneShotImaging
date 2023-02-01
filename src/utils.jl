@@ -1,6 +1,6 @@
 export setup_refs, make_model, get_shots
 
-function make_data(J, dm, idx, shot_path; perm=false)
+function make_data(J, dm, idx, shot_path; perm=false, nsim::Integer=get_nsrc(J.rInterpolation))
     name = @strdict J dm idx
     sname = joinpath(shot_path, savename(name; digits=6)*"data.jld2")
     if isfile(sname)
@@ -11,26 +11,27 @@ function make_data(J, dm, idx, shot_path; perm=false)
     end
     nt = J.rInterpolation.geometry.nt[1]
     nsrc = get_nsrc(J.rInterpolation.geometry)
+
+    inds = nsim < nsrc ? randperm(nsrc)[1:nsim] : 1:nsrc
+
     nxrec = J.rInterpolation.geometry.nrec[1]
-    dobs = reshape(vec(dobs), nt, nxrec, nsrc, 1)
-    if perm
-        dobs = dobs[:, :, randperm(nsrc), :]
-    end
+    dobs = reshape(vec(dobs), nt, nxrec, nsrc, 1)[:, :, inds, :]
+
     snorms = mapslices(x->norm(x, Inf), dobs; dims=[1,2,4])
     dobs ./= snorms
-    return dobs
+    return dobs, J[inds]
 end
 
-function get_shots(idx, J, shot_path, dmj, m0)
+function get_shots(idx, J, shot_path, dmj, m0; nsim::Integer=get_nsrc(J.rInterpolation))
     # Observed data
     J.model.m .= m0
-    d_obs = make_data(J, dmj, idx, shot_path)
+    d_obs = make_data(J, dmj, idx, shot_path; nsim=nsim)
     dmj = reshape(dmj, J.model.n..., 1, 1)
     return d_obs
 end
 
 # Forward pass on neural networks
-function loss_unet_sup(h1, h2, Js, dmj, d_obs, m0; misfit=Flux.Losses.mse, device=cpu)
+function loss_unet_sup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Losses.mse, device=cpu) where T
     Zygote.ignore() do
         set_m0(Js, m0)
     end
@@ -44,7 +45,7 @@ function loss_unet_sup(h1, h2, Js, dmj, d_obs, m0; misfit=Flux.Losses.mse, devic
 end
 
 # Forward pass on neural networks
-function loss_unet_unsup(h1, h2, Js, dmj, d_obs, m0; misfit=Flux.Losses.mse, device=cpu)
+function loss_unet_unsup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Losses.mse, device=cpu) where T
     simd = Zygote.ignore() do
         q_sim, qw = make_sim_source(Js.J.q)
         simd = make_super_shot(d_obs, qw)
