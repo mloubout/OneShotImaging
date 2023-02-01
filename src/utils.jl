@@ -1,7 +1,8 @@
 export setup_refs, make_model, get_shots
 
 function make_data(J, dm, idx, shot_path; perm=false)
-    name = @strdict J dm idx
+    nsrc = get_nsrc(J.rInterpolation.geometry)
+    name = @strdict J dm idx nsrc
     sname = joinpath(shot_path, savename(name; digits=6)*"data.jld2")
     if isfile(sname)
         dobs = load(sname)["dobs"]
@@ -10,7 +11,7 @@ function make_data(J, dm, idx, shot_path; perm=false)
         safesave(sname, @strdict dobs);
     end
     nt = J.rInterpolation.geometry.nt[1]
-    nsrc = get_nsrc(J.rInterpolation.geometry)
+    
     nxrec = J.rInterpolation.geometry.nrec[1]
     dobs = reshape(vec(dobs), nt, nxrec, nsrc, 1)
     if perm
@@ -47,7 +48,7 @@ end
 function loss_unet_unsup(h1, h2, Js, dmj, d_obs, m0; misfit=Flux.Losses.mse, device=cpu)
     simd = Zygote.ignore() do
         q_sim, qw = make_sim_source(Js.J.q)
-        simd = make_super_shot(d_obs, qw)
+        simd = make_super_shot(d_obs, qw;J=Js.J)
         set_m0(Js, m0)
         Js.Jsq.q.data .= q_sim
         return simd
@@ -65,11 +66,11 @@ end
 
 loss_func(sup::Bool) = sup ? loss_unet_sup : loss_unet_unsup
 
-function make_model(J, depth1, depth2; supervised=true, device=cpu, precon=true)
+function make_model(J, depth1, depth2;M=nothing, supervised=true, device=cpu, precon)
     h1 = Chain(x->sum(x; dims=3), Unet(1, 1, depth1)) |> device
     h2 = Unet(1, 1, depth2) |> device
     ps = Flux.params(h1, h2)
-    Js = make_Js(J; precon=precon)
+    Js = make_Js(J;M=M, precon=precon)
     net(dm, dobs, m0) = loss_func(supervised)(h1, h2, Js, dm, dobs, m0; device=device)
     return net, ps
 end
