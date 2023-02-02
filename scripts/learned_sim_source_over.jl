@@ -69,23 +69,27 @@ end
 
 # Data
 mkpath(datadir("training-data"))
-data_path = "../MultiSourceSummary.jl/data/training_data/fastmri_training_data_1-2750_512_mo_rho0.jld2"
-#data_path = datadir("training-data","brain_overfit.jld2")
-# if isfile(data_path) == false
-#     println("Downloading data...");
-#     download("https://www.dropbox.com/s/i7ynocjle7nxvq5/brain_overfit.jld2?dl=0", data_path)
-# end
+#data_path = "../MultiSourceSummary.jl/data/training_data/fastmri_training_data_1-2750_512_mo_rho0.jld2"
+data_path = datadir("training-data","brain_mo_dimp_256.jld2")
+if isfile(data_path) == false
+    println("Downloading data...");
+    download("https://www.dropbox.com/s/4ydd0etzk7xxbu8/brain_mo_dimp_256.jld2?dl=0", data_path)
+end
 
 Slices = load(data_path)
 nx = 256 #getting nans when doing original size of 512
 
-n_total = size(Slices["m0_train"])[end]#2500
-m0_train = zeros(Float32,nx,nx,n_total)
-dimp_train = zeros(Float32,nx,nx,n_total)
-for i in 1:n_total
-    m0_train[:,:,i] = imresize(Slices["m0_train"][:,:,1,i]',(nx,nx))
-    dimp_train[:,:,i] = imresize(Slices["X_train"][:,:,1,i]',(nx,nx))
-end
+m0_train   = Slices["m0_train"]
+dimp_train = Slices["dimp_train"]
+
+# n_total = size(Slices["m0_train"])[end]
+# m0_train = zeros(Float32,nx,nx,n_total)
+# dimp_train = zeros(Float32,nx,nx,n_total)
+# for i in 1:n_total
+#     m0_train[:,:,i] = imresize(Slices["m0_train"][:,:,1,i]',(nx,nx))
+#     dimp_train[:,:,i] = imresize(Slices["X_train"][:,:,1,i]',(nx,nx))
+# end
+
 
 m0 =  m0_train[:,:,3]
 
@@ -166,7 +170,7 @@ n_epochs = 500
 n_samples_train = 2500
 n_samples_test = 250
 
-plot_every = 50
+plot_every = 100
 save_every = 100
 test_every = 25
 
