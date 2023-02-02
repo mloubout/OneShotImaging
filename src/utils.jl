@@ -27,7 +27,7 @@ function get_shots(idx, J, shot_path, dmj, m0)
     J.model.m .= m0
     d_obs = make_data(J, dmj, idx, shot_path)
     dmj = reshape(dmj, J.model.n..., 1, 1)
-    return d_obs
+    return 100f0 .* d_obs
 end
 
 # Forward pass on neural networks
@@ -67,7 +67,10 @@ end
 loss_func(sup::Bool) = sup ? loss_unet_sup : loss_unet_unsup
 
 function make_model(J, depth1, depth2;M=nothing, supervised=true, device=cpu, precon)
-    h1 = Chain(x->sum(x; dims=3), Unet(1, 1, depth1)) |> device
+    #h1 = Chain(x->sum(x; dims=3), Unet(1, 1, depth1)) |> device
+    nsrc = get_nsrc(J.rInterpolation.geometry)
+    h1 = Unet(nsrc, 1, depth1) |> device
+ 
     h2 = Unet(1, 1, depth2) |> device
     ps = Flux.params(h1, h2)
     Js = make_Js(J;M=M, precon=precon)
