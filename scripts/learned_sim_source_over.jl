@@ -52,7 +52,7 @@ function circle_geom(h, k, r, numpoints)
        Float32.(h .- r*cos.(theta)), Float32.(k .+ r*sin.(theta)), theta
 end
 
-sim_name = "train"
+sim_name = "train-clean"
 plot_path = plotsdir(sim_name)
 save_path = datadir()
 shot_path = datadir()
@@ -70,33 +70,40 @@ end
 # Data
 mkpath(datadir("training-data"))
 #data_path = "../MultiSourceSummary.jl/data/training_data/fastmri_training_data_1-2750_512_mo_rho0.jld2"
-data_path = datadir("training-data","brain_mo_dimp_256.jld2")
-if isfile(data_path) == false
-    println("Downloading data...");
-    download("https://www.dropbox.com/s/4ydd0etzk7xxbu8/brain_mo_dimp_256.jld2?dl=0", data_path)
-end
+# data_path = datadir("training-data","brain_mo_dimp_256.jld2")
+# if isfile(data_path) == false
+#     println("Downloading data...");
+#     download("https://www.dropbox.com/s/4ydd0etzk7xxbu8/brain_mo_dimp_256.jld2?dl=0", data_path)
+# end
+
+# Slices = load(data_path)
+# nx = 256 #getting nans when doing original size of 512
+
+mkpath(datadir("training-data"))
+#data_path = "../MultiSourceSummary.jl/data/training_data/fastmri_training_data_1-2750_512_mo_rho0.jld2"
+data_path = datadir("training-data","fastmri_training_data_49-49_512_m_rho_mo_rho0.jld2")
 
 Slices = load(data_path)
 nx = 256 #getting nans when doing original size of 512
 
-m0_train   = Slices["m0_train"]
-dimp_train = Slices["dimp_train"]
-
-# n_total = size(Slices["m0_train"])[end]
-# m0_train = zeros(Float32,nx,nx,n_total)
-# dimp_train = zeros(Float32,nx,nx,n_total)
-# for i in 1:n_total
-#     m0_train[:,:,i] = imresize(Slices["m0_train"][:,:,1,i]',(nx,nx))
-#     dimp_train[:,:,i] = imresize(Slices["X_train"][:,:,1,i]',(nx,nx))
-# end
+m   = Slices["m_train"][:,:,1,1]'
+m0   = Slices["m0_train"][:,:,1,1]'
+rho0   = Slices["rho0_train"][:,:,1,1]'
+rho   = Slices["rho_train"][:,:,1,1]'
 
 
-m0 =  m0_train[:,:,3]
+using Images 
+m = imresize(m,(nx,nx))
+m0 = imresize(m0,(nx,nx))
+rho0 = imresize(rho0,(nx,nx))
+rho = imresize(rho,(nx,nx))
+dm = m0-m
 
 # Set up model structure
 n = size(m0)
+dx=1
 #d = (0.5,0.5) # for 512 resolution
-d = (1,1)
+d = (dx,dx)
 o = (0., 0.)
 
 # Setup info and model structure
@@ -117,7 +124,6 @@ step_num = Int(nxrec/nsrc)
 xsrc  = xrec[1:step_num:end]
 ysrc  = range(0f0, stop=0f0, length=nsrc)
 zsrc  = zrec[1:step_num:end]
-
 
 # receiver sampling and recording time
 f0 = .4f0    # Central frequency in MHz
@@ -151,31 +157,32 @@ J = judiJacobian(F0, q)
 
 # Setup neural networks
 using JOLI 
-radius = 110;
-mask = [(i - model0.n[1] / 2)^2 + (j - model0.n[2] / 2)^2 - radius^2 for i = 1:model0.n[1], j = 1:model0.n[2]];
-mask[mask .> 0] .= 0f0;
-mask[mask .< 0] .= 1f0;
+# radius = 110;
+# mask = [(i - model0.n[1] / 2)^2 + (j - model0.n[2] / 2)^2 - radius^2 for i = 1:model0.n[1], j = 1:model0.n[2]];
+# mask[mask .> 0] .= 0f0;
+# mask[mask .< 0] .= 1f0;
 
-# dm = vec(dimp_train[:,:,1])
-# mask = zeros(Float32,size(dm))
-# mask[findall(x -> x != 0,dm)] .= 1f0
+mask = zeros(Float32,size(dm))
+mask[findall(x -> x != 0,dm)] .= 1f0
 
 #Mr = joEye(prod(model0.n);DDT=Float32,RDT=Float32)
 Mr = joDiag(vec(mask );  RDT=Float32, DDT=Float32)  
-
-net, ps = make_model(J, 4, 3; supervised=true, device=device, M=Mr, precon=true);
+supervised=true
+net, ps = make_model(J, 4, 3; supervised=supervised, device=device, M=Mr, precon=true);
 
 # Train
-n_epochs = 500
+n_epochs = 6000
 n_samples_train = 2500
 n_samples_test = 250
 
-plot_every = 100
+plot_every = 200
 save_every = 100
 test_every = 25
 
-lr = 1f-4
-opt = Flux.ADAM(lr, (0.9, 0.999))
+fac = 100f0
+lr = 8f-5
+lr_clip = 10f0
+opt = Flux.Optimiser(ClipNorm(lr_clip),Flux.ADAM(lr, (0.9, 0.999)))
 train_loss_h = Vector{Float32}()
 test_loss_h = Vector{Float32}()
 
@@ -184,32 +191,38 @@ Random.seed!(123)
 inds = randperm(n_samples_train+n_samples_test)
 indices_train = inds[1:n_samples_train]
 indices_test = inds[n_samples_train+1:end]
-ntest = length(indices_test)
-
-iname = @strdict indices_train indices_test
-# safesave(joinpath(save_path, savename(iname; digits=6)*"train-split-indices.jld2"), @strdict indices_train indices_test);
 
 p = isinteractive() ? Progress(n_epochs*n_samples_train, color=:red) : nothing
 
-idx_plot = 1
+
+
+idx_plot = 2
+d_obs = get_shots(idx_plot, J, shot_path, dm, m0;fac=fac)
+rtms, rtm = make_rtms(J, d_obs, m0;precon=false)
+rtm = reshape(Mr * vec(rtm), size(rtm))
+to_train = rtm
+
+
+
 for e in 1:n_epochs
-    #idx_train = [1]#
-    idx_train = indices_train[randperm(length(indices_train))]
-    # if mod(e-1, plot_every) == 0
-    #     dmj = dimp_train[:,:,idx_plot]
-    #     m0j = m0_train[:,:,idx_plot]
-    #     d_obs = get_shots(idx_plot, J, shot_path, dmj, m0j)
-    #     plot_prediction(net, J, m0j, dmj, d_obs, 1, e, plot_path;lr=lr, n_epochs=n_epochs, name="train")
-    #     plot_losses(train_loss_h, train_loss_h, 1, e, plot_path; lr=lr, n_epochs=n_epochs)
-    #  end
+    idx_train = [1]#
+    #idx_train = indices_train[randperm(length(indices_train))]
+    if mod(e-1, plot_every) == 0
+        dmj = to_train#dimp_train[:,:,idx_plot]
+        m0j = m0#m0_train[:,:,idx_plot]
+        d_obs = get_shots(idx_plot, J, shot_path, dmj, m0j;fac=fac)
+        fig_name = @strdict e n_epochs lr fac supervised nt dx lr_clip
+        plot_prediction(net, J, m0j, dmj, d_obs, 1, e, plot_path,fig_name;lr=lr, n_epochs=n_epochs, name="train")
+        plot_losses(train_loss_h, train_loss_h, 1, e, plot_path; lr=lr, n_epochs=n_epochs)
+     end
 
     for (k, idx) in enumerate(idx_train)
         println("training on ind $(idx)")
 
         # Training
-        dmj = dimp_train[:,:,idx]
-        m0j = m0_train[:,:,idx]
-        d_obs = get_shots(idx, J, shot_path, dmj, m0j)
+        dmj = to_train#dimp_train[:,:,idx]
+        m0j = m0#m0_train[:,:,idx]
+        d_obs = get_shots(idx, J, shot_path, dmj, m0j;fac=fac)
    
         Base.flush(stdout)
         t1 = @elapsed begin
@@ -223,34 +236,34 @@ for e in 1:n_epochs
             push!(train_loss_h, loss_log)
             GC.gc(true)
         end
-        if mod(k-1, plot_every) == 0
-            idx_plot_train = indices_train[3]
-            dmj = dimp_train[:,:,idx_plot_train]
-            m0j = m0_train[:,:,idx_plot_train]
-            d_obs = get_shots(idx_plot_train, J, shot_path, dmj, m0j)
-            plot_prediction(net, J, m0j, dmj, d_obs, k, e, plot_path;lr=lr, n_epochs=n_epochs, name="train")
-            plot_losses(train_loss_h, test_loss_h, k, e, plot_path; lr=lr, n_epochs=n_epochs)
-        end
-        #Testing
-        if mod(k-1, test_every) == 0
-            idxt = indices_test[1]
-            dmjt = dimp_train[:,:,idxt]
-            m0t = m0_train[:,:,idxt]
-            d_obst = get_shots(idxt, J, shot_path, dmjt, m0t)
-            loss_log = net(dmjt, d_obst, m0t)[1]
-            push!(test_loss_h, loss_log)
+        # if mod(k-1, plot_every) == 0
+        #     idx_plot_train = indices_train[3]
+        #     dmj = dimp_train[:,:,idx_plot_train]
+        #     m0j = m0_train[:,:,idx_plot_train]
+        #     d_obs = get_shots(idx_plot_train, J, shot_path, dmj, m0j;fac=fac)
+        #     plot_prediction(net, J, m0j, dmj, d_obs, k, e, plot_path;lr=lr, n_epochs=n_epochs, name="train")
+        #     plot_losses(train_loss_h, test_loss_h, k, e, plot_path; lr=lr, n_epochs=n_epochs)
+        # end
+        # #Testing
+        # if mod(k-1, test_every) == 0
+        #     idxt = indices_test[1]
+        #     dmjt = dimp_train[:,:,idxt]
+        #     m0t = m0_train[:,:,idxt]
+        #     d_obst = get_shots(idxt, J, shot_path, dmjt, m0t;fac=fac)
+        #     loss_log = net(dmjt, d_obst, m0t)[1]
+        #     push!(test_loss_h, loss_log)
 
-            mod(k-1, plot_every) == 0 && plot_prediction(net, J, m0t, dmjt, d_obst, k, e, plot_path;lr=lr, n_epochs=n_epochs, name="test")
-        end
+        #     mod(k-1, plot_every) == 0 && plot_prediction(net, J, m0t, dmjt, d_obst, k, e, plot_path;lr=lr, n_epochs=n_epochs, name="test")
+        # end
 
-        #mod(k-1, plot_every) == 0 && plot_losses(train_loss_h, train_loss_h, k, e, plot_path; lr=lr, n_epochs=n_epochs)
-        #mod(k-1, plot_every) == 0 && plot_losses(train_loss_h, test_loss_h, k, e, plot_path; lr=lr, n_epochs=n_epochs)
+        # #mod(k-1, plot_every) == 0 && plot_losses(train_loss_h, train_loss_h, k, e, plot_path; lr=lr, n_epochs=n_epochs)
+        # #mod(k-1, plot_every) == 0 && plot_losses(train_loss_h, test_loss_h, k, e, plot_path; lr=lr, n_epochs=n_epochs)
         
-        #Save network and print progress
-        if mod(k-1, save_every) == 0
-            mname = @strdict k e n_epochs lr
-            safesave(joinpath(save_path, savename(mname; digits=6)*"train.jld2"), @strdict ps train_loss_h);
-        end
+        # #Save network and print progress
+        # if mod(k-1, save_every) == 0
+        #     mname = @strdict k e n_epochs lr
+        #     safesave(joinpath(save_path, savename(mname; digits=6)*"train.jld2"), @strdict ps train_loss_h);
+        # end
         if isinteractive()
             ProgressMeter.next!(p; showvalues=[(:loss_train, train_loss_h[end]), (:epoch, e), (:iter, k), (:t, t1)], valuecolor=:blue)
         else

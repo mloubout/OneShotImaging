@@ -1,4 +1,4 @@
-export setup_operators
+export setup_operators, make_rtms,make_Js
 using Random 
 _vec_cell(x) = [vcat(x...)]
 

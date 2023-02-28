@@ -1,4 +1,5 @@
-export setup_refs, make_model, get_shots
+export setup_refs, make_model, get_shots, loss_func
+using Statistics 
 
 function make_data(J, dm, idx, shot_path; perm=false)
     nsrc = get_nsrc(J.rInterpolation.geometry)
@@ -22,12 +23,12 @@ function make_data(J, dm, idx, shot_path; perm=false)
     return dobs
 end
 
-function get_shots(idx, J, shot_path, dmj, m0)
+function get_shots(idx, J, shot_path, dmj, m0;fac=1f0)
     # Observed data
     J.model.m .= m0
     d_obs = make_data(J, dmj, idx, shot_path)
     dmj = reshape(dmj, J.model.n..., 1, 1)
-    return 100f0 .* d_obs
+    return fac .* d_obs
 end
 
 # Forward pass on neural networks
@@ -75,5 +76,5 @@ function make_model(J, depth1, depth2;M=nothing, supervised=true, device=cpu, pr
     ps = Flux.params(h1, h2)
     Js = make_Js(J;M=M, precon=precon)
     net(dm, dobs, m0) = loss_func(supervised)(h1, h2, Js, dm, dobs, m0; device=device)
-    return net, ps
+    return net, ps, h1, h2
 end
