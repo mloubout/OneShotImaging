@@ -1,7 +1,6 @@
 # Compare acoustic data and imaging on MIDA model vs models derived from FASTMRI
 using DrWatson
 @quickactivate :OneShotImaging
-import Pkg; Pkg.instantiate()
 
 ENV["DEVITO_LOGGING"] = "ERROR"
 
@@ -35,7 +34,7 @@ end
 # Data
 Slices = load("$(data_path)/overthrust_images_train.jld")
 m = Slices["m"][3]
-m0 = Slices["m0"][3]
+m0 = Slices["m0"][3]    
 dm = vec(Slices["dm"][3])
 ntrain = length(m)
 
@@ -90,18 +89,18 @@ Jsim = setup_operators(J)
 # Train
 
 # Setup neural networks
-net, ps = make_model(J, 4, 3; supervised=true, device=device)
+net, ps = make_model(J, 5, 3; supervised=true, device=device, nsim=n_sim_src)
 
 # Train
 n_epochs = 20
 n_samples_train = 1600
 n_samples_test = 400
 
-plot_every = 100
-save_every = 100
-test_every = 20
+plot_every = 500
+save_every = 500
+test_every = 100
 
-lr = 1f-4
+lr = 1f-5
 opt = Flux.ADAM(lr, (0.9, 0.999))
 train_loss_h = Vector{Float32}()
 test_loss_h = Vector{Float32}()
@@ -143,7 +142,7 @@ for e in 1:n_epochs
             idxt = indices_test[rand(1:ntest)]
             dmjt = Slices["dm"][idxt]
             m0t = Slices["m0"][idxt]
-            d_obst, Jit = get_shots(idxt, J, shot_path, dmjt, m0t)
+            d_obst, Jit = get_shots(idxt, J, shot_path, dmjt, m0t; nsim=n_sim_src)
             loss_log = net(dmjt, d_obst, m0t)[1]
             push!(test_loss_h, loss_log)
 
@@ -154,7 +153,8 @@ for e in 1:n_epochs
         # Save network and print progress
         if mod(k-1, save_every) == 0
             mname = @strdict k e n_epochs lr
-            safesave(joinpath(save_path, savename(mname; digits=6)*"train.jld2"), @strdict ps train_loss_h);
+            netc = cpu(net)
+            safesave(joinpath(save_path, savename(mname; digits=6)*"train.bson"), @strdict netc train_loss_h);
         end
         if isinteractive()
             ProgressMeter.next!(p; showvalues=[(:loss_train, train_loss_h[end]), (:epoch, e), (:iter, k), (:t, t1)], valuecolor=:blue)

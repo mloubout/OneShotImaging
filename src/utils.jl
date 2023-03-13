@@ -31,7 +31,7 @@ function get_shots(idx, J, shot_path, dmj, m0; nsim::Integer=get_nsrc(J.rInterpo
 end
 
 # Forward pass on neural networks
-function loss_unet_sup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Losses.mse, device=cpu) where T
+function loss_unet_sup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Losses.mae, device=cpu) where T
     Zygote.ignore() do
         set_m0(Js, m0)
     end
@@ -45,7 +45,7 @@ function loss_unet_sup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Loss
 end
 
 # Forward pass on neural networks
-function loss_unet_unsup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Losses.mse, device=cpu) where T
+function loss_unet_unsup(h1, h2, Js, dmj, d_obs::Array{T, 4}, m0; misfit=Flux.Losses.mae, device=cpu) where T
     simd = Zygote.ignore() do
         q_sim, qw = make_sim_source(Js.J.q)
         simd = make_super_shot(d_obs, qw)
@@ -66,8 +66,8 @@ end
 
 loss_func(sup::Bool) = sup ? loss_unet_sup : loss_unet_unsup
 
-function make_model(J, depth1, depth2; supervised=true, device=cpu, precon=true)
-    h1 = Chain(x->sum(x; dims=3), Unet(1, 1, depth1)) |> device
+function make_model(J, depth1, depth2; supervised=true, device=cpu, precon=true, nsim::Integer=get_nsrc(J.rInterpolation))
+    h1 = Chain(Conv((1,1), nsim=>nsim, identity; bias=false), Unet(nsim, 1, depth1)) |> device
     h2 = Unet(1, 1, depth2) |> device
     ps = Flux.params(h1, h2)
     Js = make_Js(J; precon=precon)

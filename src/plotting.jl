@@ -25,9 +25,10 @@ function plot_prediction(net, J, m0, dm, shots, k::Integer, e::Integer, plot_pat
     dtrec = J.rInterpolation.geometry.dt[1]
     model0 = J.model
     # Learned data and source
+    trued = hcat([shots[:, :, i, 1] for i=1:nsrc]...)
     fig = figure(figsize=(16,16))
     subplot(1,3,1)
-    plot_sdata(shots[:, :, rand(1:nsrc), 1], (dtrec, dxrec); cmap="seismic", name=L"Single shot", new_fig=false)
+    plot_sdata(trued, (dtrec, dxrec); cmap="seismic", name=L"d_{obs}", new_fig=false)
     subplot(1,3,2)
     plot_sdata(dp[:, :, 1, 1], (dtrec, dxrec); cmap="seismic", name=L"d_p = h_1(d_o)", new_fig=false)
     subplot(1,3,3)
@@ -49,7 +50,7 @@ function plot_prediction(net, J, m0, dm, shots, k::Integer, e::Integer, plot_pat
     subplot(2,2,3);
     im1 = plot_simage(rtms', model0.d; cmap="PuOr", interp="none", name="SimSource RTM", new_fig=false, cbar=true)
     subplot(2,2,4);
-    im1 = plot_simage(rtm', model0.d; cmap="PuOr", interp="none", name="Standard RTM", new_fig=false, cbar=true)
+    im1 = plot_simage(rtm', model0.d; cmap="PuOr", interp="none", name="RTM", new_fig=false, cbar=true)
     tight_layout()
 
     fig_name = @strdict k e n_epochs lr  
