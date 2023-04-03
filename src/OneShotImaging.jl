@@ -1,9 +1,10 @@
 module OneShotImaging
 
-    using PyPlot, SlimPlotting, Zygote, JUDI, DrWatson, UNet, Flux
     using LinearAlgebra, Random
+    using PyPlot, SlimPlotting, Zygote, JUDI, DrWatson, UNet, Flux
 
-    include("utils.jl")
-    include("judi_setup.jl")
+    include("training.jl")
+    include("data_utils.jl")
+    include("judi_utils.jl")
     include("plotting.jl")
 end
