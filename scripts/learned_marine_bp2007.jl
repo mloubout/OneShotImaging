@@ -14,11 +14,10 @@ using ProgressMeter
 import Flux: update!
 
 sim_name = "bp-marine"
+save_path = "/slimdata/mlouboutin3/OneShot"
 _dict = @strdict 
-plot_path = "/localdata/mlouboutin3/learned-sim-source/plots/$(sim_name)"
-save_path = "/localdata/mlouboutin3/learned-sim-source/data/$(sim_name)"
-data_path = "/localdata/mlouboutin3/learned-sim-source/data"
-shot_path = "/localdata/mlouboutin3/learned-sim-source/data/over-shots"
+plot_path = "$(save_path)/plots/$(sim_name)"
+save_path = "$(save_path)/data/$(sim_name)"
 
 
 # Check if can run on gpu
@@ -31,9 +30,8 @@ else
     @info "Training on CPU"
 end
 
-device = cpu
 # Data
-segy_path = "/localdata/mlouboutin3/BP2004"
+segy_path = "/slimdata/SharedData/BP2004"
 container = segy_scan(segy_path, "shots", ["GroupX", "GroupY", "RecGroupElevation", "SourceSurfaceElevation", "dt"])
 d_obs = judiVector(container; segy_depth_key = "SourceDepth")
 

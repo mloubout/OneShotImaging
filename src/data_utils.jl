@@ -48,3 +48,17 @@ function get_shots(idx::Integer, models::Vector{Model}, d_obs::judiVector, J::ju
     m, _ = limit_model_to_receiver_area(sdata.geometry, sdata.geometry, m, buffer)
     return sdata, m, J[sidx]
 end
+
+
+function get_shots(idx::Integer, m::Model, d_obs::judiVector, J::judiJacobian; nsim::Integer=get_nsrc(J.rInterpolation), batch_size=1, buffer=250f0)
+    is, ie = max(1,idx-150), min(d_obs.nsrc, idx+150)
+    sidx = shuffle(is:ie)[1:nsim]
+    sdata = d_obs[sidx]
+    # Pad data zero per channels
+    sw = ones(Float32, batch_size, sdata.nsrc)
+    sdata = simsource(sw, sdata; reduction=nothing)
+    # Get model
+    m, _ = limit_model_to_receiver_area(sdata.geometry, sdata.geometry, m, buffer)
+    return sdata, m, J[sidx]
+end
+

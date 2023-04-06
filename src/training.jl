@@ -30,12 +30,12 @@ function loss_unsup(h1, h2, J, ::Nothing, d_obs::judiVector{T, AT}; misfit=Flux.
     end
     dp = h1(device(d_ch_m))
     qp = cpu(h2(dp))
-    dmpred = vec(Js'(qp)*cpu(dp))
+    dmpred = Js'(qp)*cpu(dp)
     dmpred = reshape(M * dmpred, Js.model.m)
 
-    predict = reshape(Jsq*dmpred, J.model.n)
+    predict = Jsq*dmpred
 
-	loss = misfit(predict, simd; agg=sum)
+    loss = .5f0*norm(predict - simd)^2
     return loss, cpu(dp), qp, reshape(dmpred, J.model.n..., 1, 1)
 end
 
@@ -52,7 +52,6 @@ end
 
 function make_unet_input(d_obs::judiVector, m::PhysicalParameter)
     sdata = reshape(cat(d_obs.data..., dims=3), d_obs.geometry.nt[1], d_obs.geometry.nrec[1], d_obs.nsrc, 1)
-    @show size(sdata)
     m1 = JUDI.SincInterpolation(m.data, range(0f0, stop=1f0, length=m.n[1]), range(0f0, stop=1f0, length=size(sdata, 1)))
     m1 = JUDI.SincInterpolation(PermutedDimsArray(m1, (2,1)), range(0f0, stop=1f0, length=m.n[2]), range(0f0, stop=1f0, length=size(sdata, 2)))'
     return cat(sdata, reshape(m1, size(m1)..., 1, 1), dims=3)
