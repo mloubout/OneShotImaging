@@ -18,25 +18,20 @@ function loss_sup(h1, h2, J, dmj, d_obs::judiVector{T, AT}; misfit=Flux.Losses.m
 end
 
 # Forward pass on neural networks
-function loss_unsup(h1, h2, J, ::Nothing, d_obs::judiVector{T, AT}; misfit=Flux.Losses.mae, device=cpu) where {T, AT}
-    simd, M, Jsq, Js, d_ch_m = Zygote.ignore() do
-        qw = randn(Float32, 1, d_obs.nsrc)
-        simd = qw * d_obs
-        Jsq = qw * J
-        M = judiTopmute(J.model)
-        Js = sim_rec_J(J, d_obs)
-        d_ch_m = make_unet_input(d_obs, J.model.m)
-        return simd, M, Jsq, Js, d_ch_m
+function loss_unsup(h1, h2, Jl, Js, dm, simd::judiVector, d_obs::AbstractArray{T, 4}; misfit=Flux.Losses.mae, device=cpu) where T
+    M = Zygote.ignore() do
+        M = judiTopmute(Jl.model)
+        return M
     end
-    dp = h1(device(d_ch_m))
+    dp = h1(device(d_obs))
     qp = cpu(h2(dp))
-    dmpred = Js'(qp)*cpu(dp)
+    dmpred = Jl'(qp)*cpu(dp)
     dmpred = reshape(M * dmpred, Js.model.m)
 
-    predict = Jsq*dmpred
+    predict = Js*dmpred
 
     loss = .5f0*norm(predict - simd)^2
-    return loss, cpu(dp), qp, reshape(dmpred, J.model.n..., 1, 1)
+    return loss, cpu(dp), qp, reshape(dmpred, Js.model.n..., 1, 1)
 end
 
 loss_func(sup::Bool) = sup ? loss_sup : loss_unsup
@@ -45,14 +40,8 @@ function make_model(J, depth1, depth2; supervised=true, device=cpu, precon=true,
     h1 = Unet(nsim+1, 1, depth1) |> device
     h2 = Unet(1, 1, depth2) |> device
     ps = Flux.params(h1, h2)
-    net(dm, dobs, J) = loss_func(supervised)(h1, h2, J, dm, dobs; device=device)
+    net(dm, dobs, simd, Jl, Js) = loss_func(supervised)(h1, h2, Jl, Js, dm, simd, dobs; device=device)
     return net, ps
 end
 
 
-function make_unet_input(d_obs::judiVector, m::PhysicalParameter)
-    sdata = reshape(cat(d_obs.data..., dims=3), d_obs.geometry.nt[1], d_obs.geometry.nrec[1], d_obs.nsrc, 1)
-    m1 = JUDI.SincInterpolation(m.data, range(0f0, stop=1f0, length=m.n[1]), range(0f0, stop=1f0, length=size(sdata, 1)))
-    m1 = JUDI.SincInterpolation(PermutedDimsArray(m1, (2,1)), range(0f0, stop=1f0, length=m.n[2]), range(0f0, stop=1f0, length=size(sdata, 2)))'
-    return cat(sdata, reshape(m1, size(m1)..., 1, 1), dims=3)
-end

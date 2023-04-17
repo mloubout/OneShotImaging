@@ -1,9 +1,9 @@
 # Compare acoustic data and imaging on MIDA model vs models derived from FASTMRI
 using DrWatson
-@quickactivate :OneShotImaging
 
 ENV["DEVITO_LOGGING"] = "ERROR"
 
+using OneShotImaging
 using JLD2, JUDI
 using Statistics, LinearAlgebra, Random, Printf, SegyIO
 using Flux, Zygote
@@ -38,7 +38,7 @@ wavelet = wavelet[1:4:end]
 
 
 compass = "/slimdata/SharedData/Compass/Marine2DLine/"
-all_vels = readdir("$(compass)/data")
+all_vels = readdir("$(compass)/data")[1:10]
 nslice = length(all_vels)
 
 mis = Vector{Model}(undef, nslice)
@@ -115,26 +115,26 @@ for e in 1:n_epochs
     idxtrain = shuffle(idx_train)
     for (k, (si, idx)) in enumerate(idxtrain)
         # Training
-        dk, mk, Jk = get_shots(idx, mis[si], dis[si], J[si]; nsim=n_sim_src)
+        dk, dks, mk, Jkl, Jks = get_shots(idx, mis[si], dis[si], J[si]; nsim=n_sim_src)
         Base.flush(stdout)
         t1 = @elapsed begin
             # Compute gradient and update parameters
             local loss_log
             grads = Flux.gradient(ps) do
-                loss_log = net(nothing, dk, Jk)[1]
+                loss_log = net(nothing, dk, dks, Jkl, Jks)[1]
                 return loss_log
             end
             update!(opt, ps, grads)
             push!(train_loss_h, loss_log)
             GC.gc(true)
         end
-        mod(k-1, plot_every) == 0 && plot_prediction(net, Jk, mk, dm[si], dk, k, e, plot_path;lr=1, n_epochs=1, name="train")
+        mod(k-1, plot_every) == 0 && plot_prediction(net, Jkl, Jks, mk, dm[si], dk, dks, k, e, plot_path;lr=1, n_epochs=1, name="train")
         
 	# Testing
         if mod(k-1, test_every) == 0
 	    st, idxt = rand(idx_test)
-            dkt, mkt, Jkt = get_shots(idxt, mis[st], d_test[st], J[st]; nsim=n_sim_src)
-            loss_log = net(nothing, dkt, Jkt)[1]
+            dkt, dkts, mkt, Jktl, Jkts = get_shots(idxt, mis[st], d_test[st], J[st]; nsim=n_sim_src)
+            loss_log = net(nothing, dkt, dkts, Jktl)[1]
             push!(test_loss_h, loss_log)
             mod(k-1, plot_every) == 0 && plot_prediction(net, Jkt, mkt, dm[st], dkt, k, e, plot_path;lr=1, n_epochs=1, name="test")
         end

@@ -17,18 +17,19 @@ function plot_losses(loss_train::Vector{T}, loss_test::Vector{T}, k, e, plot_pat
 end
 
 
-function plot_prediction(net, J, m0, dm, shots, k::Integer, e::Integer, plot_path;
+function plot_prediction(net, Jl, Js, m0, dm, shots, dk, k::Integer, e::Integer, plot_path;
                          lr=1, n_epochs=1, name="train")
-    _, dp, qp, rtmp = net(dm, shots, m0)
+
+    _, dp, qp, rtmp = net(dm, shots, dk, Jl, Js)
     nsrc = size(shots, 3)
-    dxrec = dxsrc = abs(diff(J.rInterpolation.geometry.xloc[1])[1])
-    dtrec = J.rInterpolation.geometry.dt[1]
-    model0 = J.model
+    rgeom = Geometry(Js.rInterpolation.geometry)
+    dxrec = dxsrc = abs(diff(rgeom.xloc[1])[1])
+    dtrec = rgeom.dt[1]
+    model0 = Js.model
     # Learned data and source
-    trued = hcat([shots[:, :, i, 1] for i=1:nsrc]...)
     fig = figure(figsize=(16,16))
     subplot(1,3,1)
-    plot_sdata(trued, (dtrec, dxrec); cmap="seismic", name=L"d_{obs}", new_fig=false)
+    plot_sdata(dk; cmap="seismic", name=L"d_{obs}", new_fig=false)
     subplot(1,3,2)
     plot_sdata(dp[:, :, 1, 1], (dtrec, dxrec); cmap="seismic", name=L"d_p = h_1(d_o)", new_fig=false)
     subplot(1,3,3)
@@ -40,7 +41,7 @@ function plot_prediction(net, J, m0, dm, shots, k::Integer, e::Integer, plot_pat
     close(fig)
 
     # Rtms
-    rtms, rtm = make_rtms(J, shots, m0)
+    #rtms, rtm = make_rtms(Js, shots)
 
     fig = figure(figsize=(16, 8))
     subplot(2,2,1);
@@ -48,9 +49,9 @@ function plot_prediction(net, J, m0, dm, shots, k::Integer, e::Integer, plot_pat
     subplot(2,2,2);
     im1 = plot_simage(reshape(dm, model0.n)', model0.d; cmap="PuOr", interp="none", name="True dm", new_fig=false, cbar=true)
     subplot(2,2,3);
-    im1 = plot_simage(rtms', model0.d; cmap="PuOr", interp="none", name="SimSource RTM", new_fig=false, cbar=true)
+    #im1 = plot_simage(rtms', model0.d; cmap="PuOr", interp="none", name="SimSource RTM", new_fig=false, cbar=true)
     subplot(2,2,4);
-    im1 = plot_simage(rtm', model0.d; cmap="PuOr", interp="none", name="RTM", new_fig=false, cbar=true)
+    #im1 = plot_simage(rtm', model0.d; cmap="PuOr", interp="none", name="RTM", new_fig=false, cbar=true)
     tight_layout()
 
     fig_name = @strdict k e n_epochs lr  

@@ -58,7 +58,19 @@ function get_shots(idx::Integer, m::Model, d_obs::judiVector, J::judiJacobian; n
     sw = ones(Float32, batch_size, sdata.nsrc)
     sdata = simsource(sw, sdata; reduction=nothing)
     # Get model
-    m, _ = limit_model_to_receiver_area(sdata.geometry, sdata.geometry, m, buffer)
-    return sdata, m, J[sidx]
+    model, _ = limit_model_to_receiver_area(sdata.geometry, sdata.geometry, m, buffer)
+    # Random shot to match
+    dr = get_data(d_obs[sidx[1]])
+    # Jacobians
+    J = J[sidx](model)
+    Js = J[1]
+    Jl = sim_rec_J(J, sdata)
+    # Data as channels with m0
+    sdata = reshape(cat(sdata.data..., dims=3), sdata.geometry.nt[1], sdata.geometry.nrec[1], sdata.nsrc, 1)
+    m = model.m
+    m1 = JUDI.SincInterpolation(m.data, range(0f0, stop=1f0, length=m.n[1]), range(0f0, stop=1f0, length=size(sdata, 1)))
+    m1 = JUDI.SincInterpolation(PermutedDimsArray(m1, (2,1)), range(0f0, stop=1f0, length=m.n[2]), range(0f0, stop=1f0, length=size(sdata, 2)))'
+    sdata = cat(sdata, reshape(m1, size(m1)..., 1, 1), dims=3)
+    return sdata, dr, m, Jl, Js
 end
 
