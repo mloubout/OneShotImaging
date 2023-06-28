@@ -50,27 +50,32 @@ function get_shots(idx::Integer, models::Vector{Model}, d_obs::judiVector, J::ju
 end
 
 
-function get_shots(idx::Integer, m::Model, d_obs::judiVector, J::judiJacobian; nsim::Integer=get_nsrc(J.rInterpolation), batch_size=1, buffer=250f0)
-    is, ie = max(1,idx-150), min(d_obs.nsrc, idx+150)
+function get_shots(idx::Integer, m::Model, dm::Matrix, d_obs::judiVector, J::judiJacobian; nsim::Integer=get_nsrc(J.rInterpolation), batch_size=1, buffer=0f0)
+    # Copy model to avoid size change
+    model = deepcopy(m)
+    is, ie = max(1,idx-60), min(d_obs.nsrc, idx+60)
     sidx = shuffle(is:ie)[1:nsim]
     sdata = d_obs[sidx]
     # Pad data zero per channels
     sw = ones(Float32, batch_size, sdata.nsrc)
     sdata = simsource(sw, sdata; reduction=nothing)
     # Get model
-    model, _ = limit_model_to_receiver_area(sdata.geometry, sdata.geometry, m, buffer)
+    model, dml = limit_model_to_receiver_area(sdata.geometry, sdata.geometry, model, buffer; pert=dm)
     # Random shot to match
-    dr = get_data(d_obs[sidx[1]])
+    M1 = randn(Float32, 1, sdata.nsrc)
+    qr = M1 * get_data(J.q[sidx])
+    dr = simsource(M1, get_data(d_obs[sidx]); minimal=true)
     # Jacobians
     J = J[sidx](model)
-    Js = J[1]
+    Js = judiJacobian(judiModeling(J.model, qr.geometry, dr.geometry; options=J.options), qr)
     Jl = sim_rec_J(J, sdata)
+    dr = dr - Js.F * Js.q
     # Data as channels with m0
     sdata = reshape(cat(sdata.data..., dims=3), sdata.geometry.nt[1], sdata.geometry.nrec[1], sdata.nsrc, 1)
     m = model.m
     m1 = JUDI.SincInterpolation(m.data, range(0f0, stop=1f0, length=m.n[1]), range(0f0, stop=1f0, length=size(sdata, 1)))
     m1 = JUDI.SincInterpolation(PermutedDimsArray(m1, (2,1)), range(0f0, stop=1f0, length=m.n[2]), range(0f0, stop=1f0, length=size(sdata, 2)))'
     sdata = cat(sdata, reshape(m1, size(m1)..., 1, 1), dims=3)
-    return sdata, dr, m, Jl, Js
+    return sdata, dr, model, dml, Jl, Js
 end
 

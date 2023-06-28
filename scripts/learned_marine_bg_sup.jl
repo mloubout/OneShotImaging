@@ -7,6 +7,7 @@ using OneShotImaging
 using JLD2, JUDI
 using Statistics, LinearAlgebra, Random, Printf, SegyIO
 using Flux, Zygote
+using BSON
 using UNet
 using CUDA
 using ProgressMeter
@@ -14,7 +15,7 @@ using Images
 
 import Flux: update!
 
-sim_name = "bg-marine"
+sim_name = "bg-marine-sup"
 save_path = "/slimdata/mlouboutin3/OneShot"
 _dict = @strdict 
 plot_path = "$(save_path)/plots/$(sim_name)"
@@ -73,7 +74,7 @@ for (i, v) in enumerate(all_vels)
 end
 
 ####################################################################################################
-n_sim_src = 30 # about 1 src every ten withing one single shot 15km offset, taken 15 on each side
+n_sim_src = 63 # about 1 src every ten withing one single shot 15km offset, taken 15 on each side
 batch_size = 1 # To be increased
 M_build = ones(Float32, batch_size, n_sim_src)
 opt = Options(free_surface=true, IC="as", limit_m=true, buffer_size=0f0, subsampling_factor=12, dt_comp=1f0)
@@ -86,7 +87,7 @@ J = [judiJacobian(F0[i], qis[i]) for i=1:nslice]
 # Train
 
 # Setup neural networks
-net, ps = make_model(J[1], 5, 3; supervised=false, device=device, nsim=n_sim_src)
+net, ps = make_model(J[1], 5, 3; supervised=true, device=device, nsim=n_sim_src)
 
 # Train
 n_epochs = 20
@@ -104,16 +105,33 @@ plot_every = 200
 save_every = 10000
 test_every = 500
 
-lr = 5f-6
+lr = 1f-6
 opt = Flux.ADAM(lr, (0.9, 0.999))
 train_loss_h = Vector{Float32}()
 test_loss_h = Vector{Float32}()
 
 p = isinteractive() ? Progress(n_epochs*n_samples_train, color=:red) : nothing
 
-for e in 1:n_epochs
+estart=1
+kstart=1
+
+# Check if already partially traianed
+lastsave = sort(readdir(save_path))
+
+if !isempty(lastsave)
+    kstart = parse(Int, match(r"k=(.*)_lr", lastsave[end])[1])
+    estart = parse(Int, match(r"e=(.*)_k", lastsave[end])[1])
+    bson_file = BSON.load("$(save_path)/$(lastsave[end])")
+    net = bson_file["netc"] |> device
+end
+
+
+for e in estart:n_epochs
     idxtrain = shuffle(idx_train)
     for (k, (si, idx)) in enumerate(idxtrain)
+        if e == estart && k <= kstart
+	   continue
+	end
         GC.gc(true)
         CUDA.reclaim()
         # Training
@@ -126,7 +144,7 @@ for e in 1:n_epochs
             # Compute gradient and update parameters
             local loss_log
             grads = Flux.gradient(ps) do
-                loss_log = net(nothing, dk, dks, Jkl, Jks)[1]
+                loss_log = net(dmk, dk, dks, Jkl, Jks)[1]
                 return loss_log
             end
             update!(opt, ps, grads)
@@ -139,7 +157,7 @@ for e in 1:n_epochs
         if mod(k-1, test_every) == 0
 	    st, idxt = rand(idx_test)
             dkt, dkts, mkt, dmkt, Jktl, Jkts = get_shots(idxt, mis[st], dm[st], dis[st], J[st]; nsim=n_sim_src)
-            loss_log = net(nothing, dkt, dkts, Jktl, Jkts)[1]
+            loss_log = net(dmkt, dkt, dkts, Jktl, Jkts)[1]
             GC.gc(true)
 	    push!(test_loss_h, loss_log)
             mod(k-1, plot_every) == 0 && plot_prediction(net, Jktl, Jkts, mkt, dmkt, dkt, dkts, k, e, plot_path;lr=1, n_epochs=1, name="test")

@@ -4,7 +4,7 @@ function plot_losses(loss_train::Vector{T}, loss_test::Vector{T}, k, e, plot_pat
     length(loss_train) < 5 && return
     fig=figure();
     for (x, nax) in zip([loss_train, loss_test], ["train", "test"])
-        xx = range(0f0, 1f0, length=length(x))
+        xx = length(x) == 1 ? [0f0] : range(0f0, 1f0, length=length(x))
         semilogy(xx, x, label=nax)
     end
     ylabel("Objective f")
@@ -21,6 +21,8 @@ function plot_prediction(net, Jl, Js, m0, dm, shots, dk, k::Integer, e::Integer,
                          lr=1, n_epochs=1, name="train")
 
     _, dp, qp, rtmp = net(dm, shots, dk, Jl, Js)
+    @show norm(rtmp)
+
     nsrc = size(shots, 3)
     rgeom = Geometry(Js.rInterpolation.geometry)
     dxrec = dxsrc = abs(diff(rgeom.xloc[1])[1])
@@ -43,14 +45,14 @@ function plot_prediction(net, Jl, Js, m0, dm, shots, dk, k::Integer, e::Integer,
     # Rtms
     #rtms, rtm = make_rtms(Js, shots)
 
-    fig = figure(figsize=(16, 8))
-    subplot(2,2,1);
+    fig = figure(figsize=(8, 8))
+    subplot(2,1,1);
     im1 = plot_simage(reshape(rtmp, model0.n)', model0.d; cmap="PuOr", interp="none", name=L"J(q_p)'d_p", new_fig=false, cbar=true)
-    subplot(2,2,2);
+    subplot(2,1,2);
     im1 = plot_simage(reshape(dm, model0.n)', model0.d; cmap="PuOr", interp="none", name="True dm", new_fig=false, cbar=true)
-    subplot(2,2,3);
+    #subplot(2,2,3);
     #im1 = plot_simage(rtms', model0.d; cmap="PuOr", interp="none", name="SimSource RTM", new_fig=false, cbar=true)
-    subplot(2,2,4);
+    #subplot(2,2,4);
     #im1 = plot_simage(rtm', model0.d; cmap="PuOr", interp="none", name="RTM", new_fig=false, cbar=true)
     tight_layout()
 

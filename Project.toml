@@ -1,6 +1,6 @@
 name = "OneShotImaging"
-authors = ["Mathias Louboutin", "Rafael Orozco"]
 uuid = "713584bf-b05a-4861-aa1c-363894ef234d"
+authors = ["Mathias Louboutin", "Rafael Orozco"]
 
 [deps]
 DrWatson = "634d3b9d-ee7a-5ddf-bec9-22491ea816e1"

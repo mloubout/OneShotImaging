@@ -1,8 +1,6 @@
 # Compare acoustic data and imaging on MIDA model vs models derived from FASTMRI
 using DrWatson
 
-#ENV["DEVITO_LOGGING"] = "ERROR"
-
 using OneShotImaging
 using JLD2, JUDI
 using Statistics, LinearAlgebra, Random, Printf, SegyIO
@@ -14,11 +12,8 @@ using Images
 
 import Flux: update!
 
-sim_name = "bg-marine"
-save_path = "/slimdata/mlouboutin3/OneShot"
-_dict = @strdict 
-plot_path = "$(save_path)/plots/$(sim_name)"
-save_path = "$(save_path)/data/$(sim_name)"
+JUDI.set_verbosity(true)
+BLAS.set_num_threads(Threads.nthreads())
 
 # Check if can run on gpu
 if CUDA.has_cuda()
@@ -31,13 +26,15 @@ else
 end
 
 # Data
+wavelet = JUDI.low_filter(ricker_wavelet(3500f0, 1f0, 0.020f0), 4f0; fmin=3f0, fmax=40f0)
+wavelet[abs.(wavelet) .< eps(1f0)] .= 0
+wavelet = wavelet[1:4:end]
+
 compass = "/slimdata/SharedData/Compass/Marine2DLine/"
 all_vels = readdir("$(compass)/data")
 all_vels = filter(x->startswith(x, "2d"), all_vels)
+all_vels = all_vels[1:2]
 nslice = length(all_vels)
-
-# Wavelet
-@load "/slimdata/SharedData/Compass/Marine2DLine/data/wavelet.jld2"
 
 mis = Vector{Model}(undef, nslice)
 dis = Vector{judiVector}(undef, nslice)
@@ -55,11 +52,10 @@ for (i, v) in enumerate(all_vels)
         container = segy_scan("$(compass)/data/$(v)", "shot", ["GroupX", "GroupY", "RecGroupElevation", "SourceSurfaceElevation", "dt"])
         @save "$(compass)/data/$(v)/$(v)-segyio.jld2" container
     end
-    ix = sortperm(get_header(container, "SourceX")[:, 1])
-    dis[i] = judiVector(container; segy_depth_key = "SourceSurfaceElevation")[ix]
+    dis[i] = judiVector(container; segy_depth_key = "SourceSurfaceElevation")
     # source
-    src_geometry = Geometry(container; key = "source", dt=dtS, t=TD)
-    qis[i] = judiVector(src_geometry, wavelet)[ix]
+    src_geometry = Geometry(container; key = "source")
+    qis[i] = judiVector(src_geometry, wavelet)
     # model
     @load "$(compass)/slices/$v.jld2" d slice
     m = (1f-3 .* slice) .^(-1)
@@ -88,31 +84,22 @@ J = [judiJacobian(F0[i], qis[i]) for i=1:nslice]
 # Setup neural networks
 net, ps = make_model(J[1], 5, 3; supervised=false, device=device, nsim=n_sim_src)
 
-# Train
-n_epochs = 20
-
 # We have 45 slices, keep 20% for testing
+n_epochs = 20
+n_train = nslice
 
-n_test = div(nslice, 5)
-n_train = nslice - n_test
-
-idx_train = [(s, i) for s in n_test+1:nslice for i=1:dis[s].nsrc]
-idx_test =  [(s, i) for s in 1:n_test for i=1:dis[s].nsrc]
+idx_train = [(s, i) for s in 1:nslice for i=1:dis[s].nsrc]
 n_samples_train = length(idx_train)
 
-plot_every = 200
-save_every = 10000
-test_every = 500
-
-lr = 5f-6
+lr = 1f-5
 opt = Flux.ADAM(lr, (0.9, 0.999))
 train_loss_h = Vector{Float32}()
 test_loss_h = Vector{Float32}()
 
 p = isinteractive() ? Progress(n_epochs*n_samples_train, color=:red) : nothing
 
-for e in 1:n_epochs
-    idxtrain = shuffle(idx_train)
+for e in 1:1
+    idxtrain = shuffle(idx_train)[1:2]
     for (k, (si, idx)) in enumerate(idxtrain)
         GC.gc(true)
         CUDA.reclaim()
@@ -132,26 +119,6 @@ for e in 1:n_epochs
             update!(opt, ps, grads)
             push!(train_loss_h, loss_log)
             GC.gc(true)
-        end
-        mod(k-1, plot_every) == 0 && plot_prediction(net, Jkl, Jks, mk, dmk, dk, dks, k, e, plot_path;lr=1, n_epochs=1, name="train")
-        
-	# Testing
-        if mod(k-1, test_every) == 0
-	    st, idxt = rand(idx_test)
-            dkt, dkts, mkt, dmkt, Jktl, Jkts = get_shots(idxt, mis[st], dm[st], dis[st], J[st]; nsim=n_sim_src)
-            loss_log = net(nothing, dkt, dkts, Jktl, Jkts)[1]
-            GC.gc(true)
-	    push!(test_loss_h, loss_log)
-            mod(k-1, plot_every) == 0 && plot_prediction(net, Jktl, Jkts, mkt, dmkt, dkt, dkts, k, e, plot_path;lr=1, n_epochs=1, name="test")
-        end
-
-        mod(k-1, plot_every) == 0 && plot_losses(train_loss_h, test_loss_h, k, e, plot_path; lr=1, n_epochs=1)
-        
-	# Save network and print progress
-        if mod(k-1, save_every) == 0
-            mname = @strdict k e n_epochs lr
-            netc = cpu(net)
-            safesave(joinpath(save_path, savename(mname; digits=6)*"train.bson"), @strdict netc train_loss_h);
         end
         
 	if isinteractive()

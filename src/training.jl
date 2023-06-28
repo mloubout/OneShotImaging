@@ -1,20 +1,18 @@
 
 # Forward pass on neural networks
-function loss_sup(h1, h2, J, dmj, d_obs::judiVector{T, AT}; misfit=Flux.Losses.mae, device=cpu) where {T, AT}
-    M, Js, d_ch_m = Zygote.ignore() do
-        M = judiTopmute(J.model)
-        Js = sim_rec_J(J, d_obs)
-        d_ch_m = make_unet_input(d_obs, J.model.m)
-        return M, Js, d_ch_m
+function loss_sup(h1, h2, Jl, Js, dmj, ::judiVector, d_obs::AbstractArray{T, 4}; misfit=Flux.Losses.mae, device=cpu) where {T}
+    M = Zygote.ignore() do
+        M = judiTopmute(Jl.model)
+        return M
     end
 
-    dp = h1(device(d_ch_m))
+    dp = h1(device(d_obs))
     qp = cpu(h2(dp))
-    dmpred = vec(Js'(qp)*cpu(dp))
+    dmpred = Jl'(qp)*cpu(dp)
     dmpred = reshape(M * dmpred, size(dmj))
-
-	loss = misfit(dmpred, dmj; agg=sum)
-    return loss, cpu(dp), qp, reshape(dmpred, Js.J.model.n..., 1, 1)
+    
+    loss = misfit(dmpred, dmj; agg=sum)
+    return loss, cpu(dp), qp, reshape(dmpred, Jl.model.n..., 1, 1)
 end
 
 # Forward pass on neural networks
